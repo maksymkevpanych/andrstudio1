@@ -27,6 +27,7 @@ class PhotoSelectActivity : AppCompatActivity() {
     private val PERMISSION_REQUEST_CODE = 100
 
     private lateinit var imageView: ImageView
+    private var currentScaleType: ImageView.ScaleType = ImageView.ScaleType.CENTER_INSIDE // Default
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -47,6 +48,29 @@ class PhotoSelectActivity : AppCompatActivity() {
                 showPhotoSelectionDialog()
             }
         }
+
+        // Button to choose scale type
+        val btnSelectScaleType: Button = findViewById(R.id.btnSelectScaleType)
+        btnSelectScaleType.setOnClickListener {
+            showScaleTypeSelectionDialog()
+        }
+    }
+
+    private fun showScaleTypeSelectionDialog() {
+        // AlertDialog to show scale type options
+        val scaleTypes = arrayOf("Original Size", "Scale aspect Fill", "Scale to Fill")
+        val builder = AlertDialog.Builder(this)
+        builder.setTitle("Select Scale Type")
+        builder.setItems(scaleTypes) { _, which ->
+            when (which) {
+                0 -> currentScaleType = ImageView.ScaleType.CENTER_INSIDE
+                1 -> currentScaleType = ImageView.ScaleType.CENTER_CROP
+                2 -> currentScaleType = ImageView.ScaleType.FIT_XY
+            }
+
+            imageView.scaleType = currentScaleType
+        }
+        builder.show()
     }
 
     private fun showPhotoSelectionDialog() {
@@ -88,11 +112,17 @@ class PhotoSelectActivity : AppCompatActivity() {
             when (requestCode) {
                 PICK_IMAGE_REQUEST -> {
                     val imageUri: Uri? = data?.data
-                    imageUri?.let { imageView.setImageURI(it) }
+                    imageUri?.let {
+                        imageView.setImageURI(it)
+                        imageView.scaleType = currentScaleType  // Apply selected scale type
+                    }
                 }
                 TAKE_PHOTO_REQUEST -> {
                     val imageBitmap = data?.extras?.get("data") as? Bitmap
-                    imageBitmap?.let { imageView.setImageBitmap(it) }
+                    imageBitmap?.let {
+                        imageView.setImageBitmap(it)
+                        imageView.scaleType = currentScaleType  // Apply selected scale type
+                    }
                 }
             }
         } else {

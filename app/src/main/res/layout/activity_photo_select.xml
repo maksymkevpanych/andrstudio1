@@ -1,34 +1,68 @@
 <?xml version="1.0" encoding="utf-8"?>
-<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="@color/backgroundGrey"
     tools:context=".Screens.Photos.PhotoSelectActivity">
 
+    <!-- Toolbar setup -->
     <androidx.appcompat.widget.Toolbar
         android:id="@+id/toolbar"
         android:layout_width="match_parent"
         android:layout_height="?attr/actionBarSize"
-        android:background="?attr/colorPrimary"
-        android:theme="@style/ThemeOverlay.AppCompat.Dark.ActionBar"
-        android:popupTheme="@style/ThemeOverlay.AppCompat.Light"/>
+        android:background="@drawable/rounded_toolbar_background"
+        android:popupTheme="@style/ThemeOverlay.AppCompat.Light"
 
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginTop="20dp" />
+
+    <!-- ImageView with percentage dimensions -->
     <ImageView
         android:id="@+id/imageView"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_below="@id/toolbar"
-        android:layout_centerHorizontal="true"
-
+        android:layout_width="0dp"
+        android:layout_height="0dp"
         android:adjustViewBounds="true"
-        android:scaleType="fitCenter"/>
+        android:scaleType="fitCenter"
+        app:layout_constraintTop_toBottomOf="@id/toolbar"
+        app:layout_constraintBottom_toTopOf="@id/btnSelectPhoto"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintWidth_percent="0.85"
+        app:layout_constraintHeight_percent="0.45" />
 
+    <!-- Button to choose photo -->
     <Button
         android:id="@+id/btnSelectPhoto"
-        android:layout_width="wrap_content"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
+        android:backgroundTint="@color/backgroundPurple"
         android:text="Select Photo"
-        android:layout_below="@id/imageView"
-        android:layout_centerHorizontal="true"/>
+        app:layout_constraintBottom_toTopOf="@id/btnSelectScaleType"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginStart="20dp"
+        android:layout_marginEnd="20dp"
+        app:layout_constraintHorizontal_bias="0.5" />
 
-</RelativeLayout>
+    <!-- Button to select scale type -->
+    <Button
+        android:id="@+id/btnSelectScaleType"
+        android:layout_width="0dp"
+        android:backgroundTint="@color/backgroundPurple"
+        android:layout_height="wrap_content"
+        android:text="Select Scale Type"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginStart="20dp"
+        android:layout_marginEnd="20dp"
+        app:layout_constraintHorizontal_bias="0.5" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>
