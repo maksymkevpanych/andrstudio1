@@ -2,9 +2,15 @@ package com.example.myfirstapplication.Screens.Photos
 
 import android.Manifest
 import android.app.Activity
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.ContentValues
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -17,8 +23,14 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.Toolbar
 import androidx.core.app.ActivityCompat
+import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
+import com.bumptech.glide.Glide
 import com.example.myfirstapplication.R
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class PhotoSelectActivity : AppCompatActivity() {
 
@@ -27,76 +39,117 @@ class PhotoSelectActivity : AppCompatActivity() {
     private val PERMISSION_REQUEST_CODE = 100
 
     private lateinit var imageView: ImageView
-    private var currentScaleType: ImageView.ScaleType = ImageView.ScaleType.CENTER_INSIDE // Default
+    private lateinit var notificationManager: NotificationManager
+    private lateinit var database: AppDatabase
+    private lateinit var photoDao: PhotoDao
+
+    private companion object {
+        private const val CHANNEL_ID = "image_update_channel"
+        private const val NOTIFICATION_ID = 1
+    }
+
+    private var currentScaleType: ImageView.ScaleType = ImageView.ScaleType.CENTER_INSIDE
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_photo_select)
 
-        // Initialize Toolbar
+        initToolbar()
+        initUI()
+        initDatabase()
+        initNotificationManager()
+        loadLastPhoto()
+    }
+
+    private fun initToolbar() {
         val toolbar: Toolbar = findViewById(R.id.toolbar)
         setSupportActionBar(toolbar)
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
+    }
 
-        // Initialize ImageView
+    private fun initUI() {
         imageView = findViewById(R.id.imageView)
-
-        // Button to choose photo
-        val btnSelectPhoto: Button = findViewById(R.id.btnSelectPhoto)
-        btnSelectPhoto.setOnClickListener {
+        findViewById<Button>(R.id.btnSelectPhoto).setOnClickListener {
             if (checkAndRequestPermissions()) {
                 showPhotoSelectionDialog()
             }
         }
-
-        // Button to choose scale type
-        val btnSelectScaleType: Button = findViewById(R.id.btnSelectScaleType)
-        btnSelectScaleType.setOnClickListener {
+        findViewById<Button>(R.id.btnSelectScaleType).setOnClickListener {
             showScaleTypeSelectionDialog()
         }
     }
 
-    private fun showScaleTypeSelectionDialog() {
-        // AlertDialog to show scale type options
-        val scaleTypes = arrayOf("Original Size", "Scale aspect Fill", "Scale to Fill")
-        val builder = AlertDialog.Builder(this)
-        builder.setTitle("Select Scale Type")
-        builder.setItems(scaleTypes) { _, which ->
-            when (which) {
-                0 -> currentScaleType = ImageView.ScaleType.CENTER_INSIDE
-                1 -> currentScaleType = ImageView.ScaleType.CENTER_CROP
-                2 -> currentScaleType = ImageView.ScaleType.FIT_XY
-            }
+    private fun initDatabase() {
+        database = AppDatabase.getDatabase(this)
+        photoDao = database.photoDao()
+    }
 
-            imageView.scaleType = currentScaleType
+    private fun initNotificationManager() {
+        notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        createNotificationChannel()
+    }
+
+    private fun loadLastPhoto() {
+        lifecycleScope.launch {
+            val lastPhoto = withContext(Dispatchers.IO) {
+                photoDao.getLastPhoto()
+            }
+            lastPhoto?.let {
+                val uri = Uri.parse(it.uri)
+                try {
+                    Glide.with(this@PhotoSelectActivity)
+                        .load(uri)
+                        .into(imageView)
+                    imageView.scaleType = currentScaleType
+                } catch (e: Exception) {
+                    Log.e("PhotoSelectActivity", "Failed to load image", e)
+                    showAlertDialog("Error", "Failed to load the image.")
+                }
+            }
         }
-        builder.show()
+    }
+
+
+
+    private fun showScaleTypeSelectionDialog() {
+        val scaleTypes = arrayOf("Original Size", "Aspect Fill", "Stretch to Fill")
+        AlertDialog.Builder(this)
+            .setTitle("Select Scale Type")
+            .setItems(scaleTypes) { _, which ->
+                currentScaleType = when (which) {
+                    0 -> ImageView.ScaleType.CENTER_INSIDE
+                    1 -> ImageView.ScaleType.CENTER_CROP
+                    else -> ImageView.ScaleType.FIT_XY
+                }
+                imageView.scaleType = currentScaleType
+                sendImageChangeNotification()
+            }
+            .show()
     }
 
     private fun showPhotoSelectionDialog() {
-        // AlertDialog to show options
         val options = arrayOf("Choose from Gallery", "Take Photo with Camera")
-        val builder = AlertDialog.Builder(this)
-        builder.setTitle("Select Option")
-        builder.setItems(options) { _, which ->
-            when (which) {
-                0 -> openGallery() // Choose from Gallery
-                1 -> takePhoto()   // Take Photo
+        AlertDialog.Builder(this)
+            .setTitle("Select Option")
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> openGallery()
+                    1 -> takePhoto()
+                }
             }
-        }
-        builder.show()
+            .show()
     }
 
     private fun openGallery() {
-        // Intent to pick an image from the gallery
-        val intent = Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "image/*"
+        }
         startActivityForResult(intent, PICK_IMAGE_REQUEST)
     }
 
     private fun takePhoto() {
         val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
-
-        // Ensure that there is a camera activity to handle the intent
         if (intent.resolveActivity(packageManager) != null) {
             startActivityForResult(intent, TAKE_PHOTO_REQUEST)
         } else {
@@ -110,80 +163,114 @@ class PhotoSelectActivity : AppCompatActivity() {
 
         if (resultCode == Activity.RESULT_OK) {
             when (requestCode) {
-                PICK_IMAGE_REQUEST -> {
-                    val imageUri: Uri? = data?.data
-                    imageUri?.let {
-                        imageView.setImageURI(it)
-                        imageView.scaleType = currentScaleType  // Apply selected scale type
-                    }
-                }
-                TAKE_PHOTO_REQUEST -> {
-                    val imageBitmap = data?.extras?.get("data") as? Bitmap
-                    imageBitmap?.let {
-                        imageView.setImageBitmap(it)
-                        imageView.scaleType = currentScaleType  // Apply selected scale type
-                    }
-                }
+                PICK_IMAGE_REQUEST -> handleImagePickResult(data)
+                TAKE_PHOTO_REQUEST -> handlePhotoCaptureResult(data)
             }
         } else {
             showAlertDialog("Action canceled", "You canceled the photo selection.")
         }
     }
 
-    private fun checkAndRequestPermissions(): Boolean {
-        val listPermissionsNeeded = mutableListOf<String>()
+    private fun handleImagePickResult(data: Intent?) {
+        val imageUri: Uri? = data?.data
+        imageUri?.let {
+            imageView.setImageURI(it)
+            imageView.scaleType = currentScaleType
+            savePhotoUri(it.toString())
+            sendImageChangeNotification()
+        }
+    }
 
-        val cameraPermission = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+    private fun handlePhotoCaptureResult(data: Intent?) {
+        val imageBitmap = data?.extras?.get("data") as? Bitmap
+        imageBitmap?.let {
+            imageView.setImageBitmap(it)
+            imageView.scaleType = currentScaleType
+            val imageUri = saveImageToGallery(it)
+            savePhotoUri(imageUri.toString())
+            sendImageChangeNotification()
+        }
+    }
 
-        val readImagesPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES)
-        } else {
-            ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
+    private fun savePhotoUri(uri: String) {
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) {
+                val photo = Photo(uri = uri)
+                photoDao.insert(photo)
+            }
+        }
+    }
+
+    private fun saveImageToGallery(bitmap: Bitmap): Uri {
+        val contentValues = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, "Captured Image")
+            put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+            put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/${getString(R.string.app_name)}")
         }
 
-        if (cameraPermission != PackageManager.PERMISSION_GRANTED) {
-            listPermissionsNeeded.add(Manifest.permission.CAMERA)
-        }
-        if (readImagesPermission != PackageManager.PERMISSION_GRANTED) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                listPermissionsNeeded.add(Manifest.permission.READ_MEDIA_IMAGES)
-            } else {
-                listPermissionsNeeded.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+        val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+        uri?.let {
+            contentResolver.openOutputStream(it)?.use { outputStream ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputStream)
             }
         }
 
-        if (listPermissionsNeeded.isNotEmpty()) {
-            ActivityCompat.requestPermissions(
-                this,
-                listPermissionsNeeded.toTypedArray(),
-                PERMISSION_REQUEST_CODE
-            )
-            return false
-        }
-        return true
+        return uri ?: Uri.EMPTY
     }
+
+    private fun checkAndRequestPermissions(): Boolean {
+        val permissionsNeeded = mutableListOf<String>()
+
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            permissionsNeeded.add(Manifest.permission.CAMERA)
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) != PackageManager.PERMISSION_GRANTED) {
+                permissionsNeeded.add(Manifest.permission.READ_MEDIA_IMAGES)
+            }
+        } else {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                permissionsNeeded.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+            }
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            permissionsNeeded.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+
+        return if (permissionsNeeded.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, permissionsNeeded.toTypedArray(), PERMISSION_REQUEST_CODE)
+            false
+        } else {
+            true
+        }
+    }
+
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
 
         if (requestCode == PERMISSION_REQUEST_CODE) {
-            val perms: MutableMap<String, Int> = mutableMapOf()
-
-            perms[Manifest.permission.CAMERA] = PackageManager.PERMISSION_GRANTED
-            perms[Manifest.permission.READ_EXTERNAL_STORAGE] = PackageManager.PERMISSION_GRANTED
+            val permissionsMap = mutableMapOf(
+                Manifest.permission.CAMERA to PackageManager.PERMISSION_GRANTED,
+                Manifest.permission.READ_EXTERNAL_STORAGE to PackageManager.PERMISSION_GRANTED
+            )
 
             if (grantResults.isNotEmpty()) {
-                for (i in permissions.indices) {
-                    perms[permissions[i]] = grantResults[i]
+                permissions.forEachIndexed { index, permission ->
+                    permissionsMap[permission] = grantResults[index]
                 }
-                if (perms[Manifest.permission.CAMERA] == PackageManager.PERMISSION_GRANTED &&
-                    (perms[Manifest.permission.READ_EXTERNAL_STORAGE] == PackageManager.PERMISSION_GRANTED ||
-                            perms[Manifest.permission.READ_MEDIA_IMAGES] == PackageManager.PERMISSION_GRANTED)
-                ) {
-                    showPhotoSelectionDialog()
-                } else {
-                    showPermissionsDeniedDialog()
-                }
+            }
+
+            if (permissionsMap[Manifest.permission.CAMERA] == PackageManager.PERMISSION_GRANTED &&
+                (permissionsMap[Manifest.permission.READ_EXTERNAL_STORAGE] == PackageManager.PERMISSION_GRANTED ||
+                        permissionsMap[Manifest.permission.READ_MEDIA_IMAGES] == PackageManager.PERMISSION_GRANTED)
+            ) {
+                showPhotoSelectionDialog()
+            } else {
+                showPermissionsDeniedDialog()
             }
         }
     }
@@ -191,9 +278,7 @@ class PhotoSelectActivity : AppCompatActivity() {
     private fun showPermissionsDeniedDialog() {
         AlertDialog.Builder(this)
             .setMessage("Both Camera and Storage permissions are required to use this feature.")
-            .setPositiveButton("OK") { dialog, _ ->
-                dialog.dismiss()
-            }
+            .setPositiveButton("OK") { dialog, _ -> dialog.dismiss() }
             .create()
             .show()
     }
@@ -202,9 +287,7 @@ class PhotoSelectActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle(title)
             .setMessage(message)
-            .setPositiveButton("OK") { dialog, _ ->
-                dialog.dismiss()
-            }
+            .setPositiveButton("OK") { dialog, _ -> dialog.dismiss() }
             .create()
             .show()
     }
@@ -212,10 +295,43 @@ class PhotoSelectActivity : AppCompatActivity() {
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
             android.R.id.home -> {
-                finish() // Close PhotoSelectActivity and return to MainActivity
+                finish()
                 true
             }
             else -> super.onOptionsItemSelected(item)
         }
+    }
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(CHANNEL_ID, "Image Update Channel", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "Notifications when the image changes"
+            }
+            notificationManager.createNotificationChannel(channel)
+        }
+    }
+
+    private fun sendImageChangeNotification() {
+        val intent = Intent(this, PhotoSelectActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        }
+
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_launcher_foreground) // Replace with your own icon
+            .setContentTitle("Image Changed")
+            .setContentText("The image in the ImageView has been updated.")
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+
+        notificationManager.notify(NOTIFICATION_ID, notification)
     }
 }
